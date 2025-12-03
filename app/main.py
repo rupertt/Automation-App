@@ -53,6 +53,13 @@ def _get_forward_url() -> str | None:
 	return os.getenv("ZAPIER_FORWARD_URL") or os.getenv("FORWARD_URL") or settings.forward_url
 
 
+def _should_forward_original_events() -> bool:
+	val = os.getenv("FORWARD_ORIGINAL_EVENTS")
+	if val is not None:
+		return val.lower().strip() in {"1", "true", "yes", "on"}
+	return settings.forward_original_events
+
+
 def log_event(message: str, **fields: Any) -> None:
 	record = {
 		"timestamp": _now_utc().isoformat(),
@@ -105,11 +112,8 @@ def _llm_and_forward(event: EventStored) -> None:
 	# Forward LLM result the same way we forward events
 	forward_url = _get_forward_url()
 	if forward_url:
-		payload = {
-			"event_id": event.event_id,
-			"source": "llm",
-			"text": text,
-		}
+		# Send only the LLM response with event_id for traceability
+		payload = {"event_id": event.event_id, "response": text}
 		_forward_to_zapier(forward_url, payload)
 	else:
 		log_event("forward_skipped", reason="no_forward_url_configured_llm", event_id=event.event_id)
@@ -144,16 +148,15 @@ def receive_event(event: EventIn, background_tasks: BackgroundTasks) -> EventAck
 
 	# Forward the event to Zapier webhook if configured
 	forward_url = _get_forward_url()
-	if forward_url:
-		log_event("forward_scheduled", event_id=resolved_id)
-		forward_payload = {
-			"event_id": resolved_id,
-			"source": event.source,
-			"payload": event.payload,
-		}
+	if forward_url and _should_forward_original_events():
+		log_event("forward_scheduled", event_id=resolved_id, kind="original_event")
+		forward_payload = {"event_id": resolved_id, "source": event.source, "payload": event.payload}
 		background_tasks.add_task(_forward_to_zapier, forward_url, forward_payload)
 	else:
-		log_event("forward_skipped", reason="no_forward_url_configured", event_id=resolved_id)
+		if not forward_url:
+			log_event("forward_skipped", reason="no_forward_url_configured", event_id=resolved_id, kind="original_event")
+		else:
+			log_event("forward_skipped", reason="disabled_by_config", event_id=resolved_id, kind="original_event")
 
 	# Also invoke LLM and forward its single-sentence response
 	background_tasks.add_task(_llm_and_forward, stored)
