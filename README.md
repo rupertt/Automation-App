@@ -87,6 +87,55 @@ ngrok http 8000
 ```
 Use the generated public URL with the `/events` path in your Zap’s Webhook action.
 
+### Python version and venv notes
+
+- This project targets **Python 3.11+**. If you see type errors like:
+  - "Unable to evaluate type annotation 'list[T]'" or issues with `X | Y` unions, you're likely on Python 3.8/3.9. Upgrade to 3.11+.
+
+#### Recreate venv with a specific Python
+- Windows (PowerShell):
+```powershell
+deactivate 2>$null
+Remove-Item -Recurse -Force .venv
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate
+pip install -U pip
+pip install -r requirements.txt
+```
+
+- WSL (Ubuntu/Debian):
+```bash
+deactivate || true
+rm -rf .venv
+# If your default python3 is 3.11+, this is enough:
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+```
+If your distro's python3 is older, either enable a newer Python (e.g., deadsnakes PPA on Ubuntu) or use pyenv (below).
+
+#### Using pyenv (works on most distros)
+```bash
+curl -fsSL https://pyenv.run | bash
+export PATH="$HOME/.pyenv/bin:$PATH"
+eval "$(pyenv init -)"
+eval "$(pyenv virtualenv-init -)"
+pyenv install 3.11.9
+pyenv local 3.11.9
+rm -rf .venv
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+```
+
+#### Uvicorn/uvloop path tip
+If `uvicorn` from the system path runs instead of the venv one (errors about `uvloop`), run via the module to force the venv interpreter:
+```bash
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
 ### Using ngrok
 
 Expose your local server to the internet for Zapier:
