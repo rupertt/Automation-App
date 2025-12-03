@@ -1,0 +1,88 @@
+Act as a senior Python backend engineer. Create a small FastAPI project that I can use to test Zapier webhooks (Option 3 in an automation workflow).
+
+PROJECT GOAL
+I want a simple HTTP API that:
+- Exposes a POST /events endpoint that Zapier can call via Webhooks.
+- Exposes a GET /status endpoint so I can quickly verify the service is up and see some basic stats.
+- Logs all incoming webhook payloads and keeps a simple in-memory history so I can see what Zapier is sending.
+- Is easy to run locally with uvicorn and expose via ngrok.
+
+TECH REQUIREMENTS
+- Use Python 3.11+.
+- Use FastAPI.
+- Use uvicorn as the ASGI server.
+- Include type hints everywhere reasonable.
+- Use structured logging (e.g., Python logging with JSON-style messages or clear key/value fields).
+- Organize code with a minimal but sane structure:
+  - app/main.py (FastAPI app, routes)
+  - app/models.py (Pydantic models for requests/responses)
+  - app/config.py (basic config: port, environment, etc.)
+  - app/storage.py (in-memory event store implementation)
+- Include a requirements.txt.
+
+ENDPOINT DETAILS
+
+1) POST /events
+- Purpose: receive webhook calls from Zapier.
+- Expect JSON body with at least:
+  - event_id: str
+  - source: str
+  - payload: dict | Any
+- If event_id is missing, generate a UUID on the server side.
+- Validate the incoming data using Pydantic models.
+- Store each received event in a simple in-memory store (a list in storage.py is fine for now, with a max size like 100 events and FIFO eviction).
+- Log each incoming event with:
+  - Timestamp
+  - event_id
+  - source
+  - size of payload (len of JSON string or number of keys)
+- Return JSON:
+  {
+    "status": "ok",
+    "event_id": "<resolved_id>",
+    "stored_at": "<iso8601 timestamp>"
+  }
+
+2) GET /status
+- Purpose: quick health and debug endpoint.
+- Return:
+  - service: "zapier-webhook-receiver"
+  - status: "healthy"
+  - events_received: total number of events stored in memory
+  - last_event: a small summary of the most recent event if any (event_id, source, received_at), or null if none.
+- Use a Pydantic response model.
+
+OPTIONAL (NICE TO HAVE)
+- GET /events
+  - Return a paginated list (simple offset+limit query params) of the stored events.
+  - Default limit = 10.
+  - Include basic metadata only; it’s fine if payload is included as-is but you can truncate large payloads.
+
+CONFIGURATION
+- app/config.py should:
+  - Read PORT and ENV from environment variables with sensible defaults (e.g., PORT=8000, ENV="dev").
+- In main.py, create the FastAPI app and include the routes in a router.
+
+RUN INSTRUCTIONS
+- Provide clear instructions in a README.md:
+  - How to create and activate a virtualenv.
+  - How to install dependencies from requirements.txt.
+  - How to run the app with uvicorn (e.g., `uvicorn app.main:app --reload --port 8000`).
+  - How to test the API using curl or HTTPie.
+  - How to use ngrok: example command `ngrok http 8000` and how to plug the public URL into a Zapier Webhook action.
+
+TESTS
+- Include a small tests/ directory with:
+  - test_events.py using pytest.
+  - Tests for:
+    - POST /events with valid payload.
+    - POST /events without event_id (verify server generates one).
+    - GET /status shows updated events_received.
+
+DELIVERABLES
+- All source files.
+- requirements.txt.
+- README.md with setup and usage instructions.
+- Tests runnable via `pytest`.
+
+Please generate the full project structure and contents in one go so I can copy it into a new repo or let Cursor apply it directly.
