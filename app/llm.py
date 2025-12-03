@@ -11,6 +11,15 @@ except Exception:  # pragma: no cover
 	OpenAI = None  # type: ignore
 
 
+def llm_env_status() -> dict[str, Any]:
+	"""Return a small diagnostic snapshot about LLM readiness without leaking secrets."""
+	return {
+		"library_available": OpenAI is not None,
+		"has_api_key": bool(os.getenv("OPENAI_API_KEY")),
+		"model": os.getenv("OPENAI_MODEL", "chat-gpt-5"),
+	}
+
+
 def generate_one_sentence_response(event: EventStored) -> Optional[str]:
 	"""
 	Generate a single-sentence response using OpenAI chat completions.

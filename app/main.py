@@ -20,7 +20,7 @@ from app.models import (
 	EventsListResponse,
 )
 from app.storage import store
-from app.llm import generate_one_sentence_response
+from app.llm import generate_one_sentence_response, llm_env_status
 
 
 def _setup_logger() -> logging.Logger:
@@ -85,14 +85,20 @@ def _forward_to_zapier(url: str, payload: dict[str, Any]) -> None:
 def _llm_and_forward(event: EventStored) -> None:
 	# Call LLM for a one-sentence response
 	try:
+		status = llm_env_status()
+		if not status.get("library_available") or not status.get("has_api_key"):
+			reason = "library_missing" if not status.get("library_available") else "missing_api_key"
+			log_event("llm_skipped", event_id=event.event_id, reason=reason, model=status.get("model"))
+			return
 		text = generate_one_sentence_response(event)
 		if text is None:
-			log_event("llm_skipped", event_id=event.event_id)
+			# This path covers cases like empty completion; provide a reason
+			log_event("llm_skipped", event_id=event.event_id, reason="empty_completion", model=status.get("model"))
 			return
 		log_event("llm_result", event_id=event.event_id)
 	except Exception as exc:
 		# Log detailed error so operators can see quota/model/permission issues
-		log_event("llm_error", event_id=event.event_id, error=str(exc))
+		log_event("llm_error", event_id=event.event_id, error=str(exc), model=llm_env_status().get("model"))
 		return
 	# Forward LLM result the same way we forward events
 	forward_url = _get_forward_url()
