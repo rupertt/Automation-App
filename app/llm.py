@@ -16,7 +16,7 @@ def llm_env_status() -> dict[str, Any]:
 	return {
 		"library_available": OpenAI is not None,
 		"has_api_key": bool(os.getenv("OPENAI_API_KEY")),
-		"model": os.getenv("OPENAI_MODEL", "chat-gpt-5"),
+		"model": os.getenv("OPENAI_MODEL", "gpt-4.1-nano"),
 	}
 
 
@@ -30,7 +30,7 @@ def generate_one_sentence_response(event: EventStored) -> Optional[str]:
 	if not api_key or OpenAI is None:
 		return None
 
-	model = os.getenv("OPENAI_MODEL", "chat-gpt-5")
+	model = os.getenv("OPENAI_MODEL", "gpt-4.1-nano")
 
 	client = OpenAI(api_key=api_key)
 	messages = [
