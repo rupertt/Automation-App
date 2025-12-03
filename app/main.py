@@ -105,6 +105,9 @@ def _llm_and_forward(event: EventStored) -> None:
 			log_event("llm_skipped", event_id=event.event_id, reason="empty_completion", model=status.get("model"))
 			return
 		log_event("llm_result", event_id=event.event_id, text=text)
+		# Persist response for future context
+		from app.storage import store as _store
+		_store.add_llm_response(text)
 	except Exception as exc:
 		# Log detailed error so operators can see quota/model/permission issues
 		log_event("llm_error", event_id=event.event_id, error=str(exc), model=llm_env_status().get("model"))

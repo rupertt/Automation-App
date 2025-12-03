@@ -4,6 +4,7 @@ import os
 from typing import Any, Optional
 
 from app.models import EventStored
+from app.storage import store
 import httpx
 
 
@@ -49,6 +50,8 @@ def generate_one_sentence_response(event: EventStored) -> Optional[str]:
 
 	model = os.getenv("OPENAI_MODEL", "gpt-4.1-nano")
 	url = "https://api.openai.com/v1/chat/completions"
+	# Build messages with prior assistant responses as context
+	context_messages = store.llm_context_messages(limit=20)
 	payload = {
 		"model": model,
 		"messages": [
@@ -59,6 +62,7 @@ def generate_one_sentence_response(event: EventStored) -> Optional[str]:
 					"Do not include extra explanations or multiple sentences."
 				),
 			},
+			*context_messages,
 			{
 				"role": "user",
 				"content": (
