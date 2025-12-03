@@ -11,12 +11,32 @@ except Exception:  # pragma: no cover
 	OpenAI = None  # type: ignore
 
 
+def _resolve_api_key() -> tuple[Optional[str], str]:
+	"""
+	Return (api_key, source). Source is 'env', 'file', or 'none'.
+	"""
+	key_raw = os.getenv("OPENAI_API_KEY")
+	if isinstance(key_raw, str) and key_raw.strip():
+		return key_raw.strip(), "env"
+	file_path = os.getenv("OPENAI_API_KEY_FILE")
+	if isinstance(file_path, str) and file_path.strip():
+		try:
+			with open(file_path, "r", encoding="utf-8") as f:
+				content = f.read().strip()
+				if content:
+					return content, "file"
+		except Exception:
+			pass
+	return None, "none"
+
+
 def llm_env_status() -> dict[str, Any]:
 	"""Return a small diagnostic snapshot about LLM readiness without leaking secrets."""
-	key = os.getenv("OPENAI_API_KEY")
+	key, source = _resolve_api_key()
 	return {
 		"library_available": OpenAI is not None,
-		"has_api_key": bool(key.strip()) if isinstance(key, str) else False,
+		"has_api_key": bool(key),
+		"key_source": source,
 		"model": os.getenv("OPENAI_MODEL", "gpt-4.1-nano"),
 	}
 
@@ -27,8 +47,7 @@ def generate_one_sentence_response(event: EventStored) -> Optional[str]:
 	Returns None if API is not configured or client library unavailable.
 	Raises exceptions for API errors so the caller can log detailed reasons.
 	"""
-	api_key_raw = os.getenv("OPENAI_API_KEY")
-	api_key = api_key_raw.strip() if isinstance(api_key_raw, str) else None
+	api_key, _ = _resolve_api_key()
 	if not api_key or OpenAI is None:
 		return None
 
