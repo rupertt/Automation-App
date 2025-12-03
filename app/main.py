@@ -20,6 +20,7 @@ from app.models import (
 	EventsListResponse,
 )
 from app.storage import store
+from app.llm import generate_one_sentence_response
 
 
 def _setup_logger() -> logging.Logger:
@@ -81,6 +82,26 @@ def _forward_to_zapier(url: str, payload: dict[str, Any]) -> None:
 		log_event("forward_error", error=str(exc))
 
 
+def _llm_and_forward(event: EventStored) -> None:
+	# Call LLM for a one-sentence response
+	text = generate_one_sentence_response(event)
+	if text is None:
+		log_event("llm_skipped", event_id=event.event_id)
+		return
+	log_event("llm_result", event_id=event.event_id)
+	# Forward LLM result the same way we forward events
+	forward_url = _get_forward_url()
+	if forward_url:
+		payload = {
+			"event_id": event.event_id,
+			"source": "llm",
+			"text": text,
+		}
+		_forward_to_zapier(forward_url, payload)
+	else:
+		log_event("forward_skipped", reason="no_forward_url_configured_llm", event_id=event.event_id)
+
+
 @router.post("/events", response_model=EventAck)
 def receive_event(event: EventIn, background_tasks: BackgroundTasks) -> EventAck:
 	resolved_id = event.event_id or str(uuid4())
@@ -120,6 +141,9 @@ def receive_event(event: EventIn, background_tasks: BackgroundTasks) -> EventAck
 		background_tasks.add_task(_forward_to_zapier, forward_url, forward_payload)
 	else:
 		log_event("forward_skipped", reason="no_forward_url_configured", event_id=resolved_id)
+
+	# Also invoke LLM and forward its single-sentence response
+	background_tasks.add_task(_llm_and_forward, stored)
 
 	return EventAck(event_id=resolved_id, stored_at=received_at)
 
