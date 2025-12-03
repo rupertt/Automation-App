@@ -13,9 +13,10 @@ except Exception:  # pragma: no cover
 
 def llm_env_status() -> dict[str, Any]:
 	"""Return a small diagnostic snapshot about LLM readiness without leaking secrets."""
+	key = os.getenv("OPENAI_API_KEY")
 	return {
 		"library_available": OpenAI is not None,
-		"has_api_key": bool(os.getenv("OPENAI_API_KEY")),
+		"has_api_key": bool(key.strip()) if isinstance(key, str) else False,
 		"model": os.getenv("OPENAI_MODEL", "gpt-4.1-nano"),
 	}
 
@@ -26,7 +27,8 @@ def generate_one_sentence_response(event: EventStored) -> Optional[str]:
 	Returns None if API is not configured or client library unavailable.
 	Raises exceptions for API errors so the caller can log detailed reasons.
 	"""
-	api_key = os.getenv("OPENAI_API_KEY")
+	api_key_raw = os.getenv("OPENAI_API_KEY")
+	api_key = api_key_raw.strip() if isinstance(api_key_raw, str) else None
 	if not api_key or OpenAI is None:
 		return None
 

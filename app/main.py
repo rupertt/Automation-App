@@ -86,6 +86,8 @@ def _llm_and_forward(event: EventStored) -> None:
 	# Call LLM for a one-sentence response
 	try:
 		status = llm_env_status()
+		# Always log current env visibility for troubleshooting (no secrets)
+		log_event("llm_env", event_id=event.event_id, library_available=status.get("library_available"), has_api_key=status.get("has_api_key"), model=status.get("model"))
 		if not status.get("library_available") or not status.get("has_api_key"):
 			reason = "library_missing" if not status.get("library_available") else "missing_api_key"
 			log_event("llm_skipped", event_id=event.event_id, reason=reason, model=status.get("model"))
