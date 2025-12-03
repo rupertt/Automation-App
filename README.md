@@ -53,6 +53,40 @@ App will be available at:
 - http://127.0.0.1:8000/status
 - http://127.0.0.1:8000/docs (interactive Swagger UI)
 
+### Running on WSL (Ubuntu)
+
+1) Ensure Python 3.11+ and venv support:
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip
+# Optional if default python3 < 3.11:
+# sudo add-apt-repository ppa:deadsnakes/ppa -y
+# sudo apt update && sudo apt install -y python3.11 python3.11-venv
+```
+
+2) Create and activate a virtual environment (inside your WSL project directory):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+3) Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4) Run the app (bind to all interfaces for easy access from Windows):
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+- Access from Windows: http://localhost:8000/status and http://localhost:8000/docs
+- For Zapier via ngrok, run inside WSL:
+```bash
+ngrok http 8000
+```
+Use the generated public URL with the `/events` path in your Zap’s Webhook action.
+
 ### Using ngrok
 
 Expose your local server to the internet for Zapier:
