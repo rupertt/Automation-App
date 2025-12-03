@@ -84,11 +84,16 @@ def _forward_to_zapier(url: str, payload: dict[str, Any]) -> None:
 
 def _llm_and_forward(event: EventStored) -> None:
 	# Call LLM for a one-sentence response
-	text = generate_one_sentence_response(event)
-	if text is None:
-		log_event("llm_skipped", event_id=event.event_id)
+	try:
+		text = generate_one_sentence_response(event)
+		if text is None:
+			log_event("llm_skipped", event_id=event.event_id)
+			return
+		log_event("llm_result", event_id=event.event_id)
+	except Exception as exc:
+		# Log detailed error so operators can see quota/model/permission issues
+		log_event("llm_error", event_id=event.event_id, error=str(exc))
 		return
-	log_event("llm_result", event_id=event.event_id)
 	# Forward LLM result the same way we forward events
 	forward_url = _get_forward_url()
 	if forward_url:
