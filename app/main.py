@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
+import os
 from typing import Any
 from uuid import uuid4
 
@@ -46,6 +47,11 @@ def _now_utc() -> datetime:
 	return datetime.now(timezone.utc)
 
 
+def _get_forward_url() -> str | None:
+	# Prefer per-request environment overrides, then fall back to loaded settings
+	return os.getenv("ZAPIER_FORWARD_URL") or os.getenv("FORWARD_URL") or settings.forward_url
+
+
 def log_event(message: str, **fields: Any) -> None:
 	record = {
 		"timestamp": _now_utc().isoformat(),
@@ -70,7 +76,7 @@ def _forward_to_zapier(url: str, payload: dict[str, Any]) -> None:
 	try:
 		with httpx.Client(timeout=10) as client:
 			resp = client.post(url, json=payload)
-			log_event("forward_result", status_code=resp.status_code, ok=resp.is_success)
+			log_event("forward_result", status_code=resp.status_code, ok=resp.is_success, event_id=payload.get("event_id"))
 	except Exception as exc:
 		log_event("forward_error", error=str(exc))
 
@@ -103,13 +109,17 @@ def receive_event(event: EventIn, background_tasks: BackgroundTasks) -> EventAck
 	)
 
 	# Forward the event to Zapier webhook if configured
-	if settings.forward_url:
+	forward_url = _get_forward_url()
+	if forward_url:
+		log_event("forward_scheduled", event_id=resolved_id)
 		forward_payload = {
 			"event_id": resolved_id,
 			"source": event.source,
 			"payload": event.payload,
 		}
-		background_tasks.add_task(_forward_to_zapier, settings.forward_url, forward_payload)
+		background_tasks.add_task(_forward_to_zapier, forward_url, forward_payload)
+	else:
+		log_event("forward_skipped", reason="no_forward_url_configured", event_id=resolved_id)
 
 	return EventAck(event_id=resolved_id, stored_at=received_at)
 
