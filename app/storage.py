@@ -33,7 +33,12 @@ class InMemoryEventStore:
 		latest = self.latest()
 		if not latest:
 			return None
-		return EventSummary(event_id=latest.event_id, source=latest.source, received_at=latest.received_at)
+		return EventSummary(
+			event_id=latest.event_id,
+			source=latest.source,
+			received_at=latest.received_at,
+			payload=latest.payload,
+		)
 
 	def list_events(self, offset: int = 0, limit: int = 10) -> Tuple[list[EventStored], int]:
 		total = len(self._events)

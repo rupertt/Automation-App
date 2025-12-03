@@ -37,6 +37,7 @@ class EventSummary(BaseModel):
 	event_id: str
 	source: str
 	received_at: datetime
+	payload: Any
 
 
 class StatusResponse(BaseModel):

@@ -60,5 +60,6 @@ def test_status_shows_updated_events_received_and_last_event() -> None:
 	assert data["last_event"]["event_id"] == "evt-2"
 	assert data["last_event"]["source"] == "zapier"
 	assert "received_at" in data["last_event"]
+	assert data["last_event"]["payload"] == {"b": 2}
 
 
