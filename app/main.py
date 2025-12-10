@@ -53,13 +53,6 @@ def _get_forward_url() -> str | None:
 	return os.getenv("ZAPIER_FORWARD_URL") or os.getenv("FORWARD_URL") or settings.forward_url
 
 
-def _should_forward_original_events() -> bool:
-	val = os.getenv("FORWARD_ORIGINAL_EVENTS")
-	if val is not None:
-		return val.lower().strip() in {"1", "true", "yes", "on"}
-	return settings.forward_original_events
-
-
 def log_event(message: str, **fields: Any) -> None:
 	record = {
 		"timestamp": _now_utc().isoformat(),
@@ -93,8 +86,6 @@ def _llm_and_forward(event: EventStored) -> None:
 	# Call LLM for a one-sentence response
 	try:
 		status = llm_env_status()
-		# Always log current env visibility for troubleshooting (no secrets)
-		log_event("llm_env", event_id=event.event_id, library_available=status.get("library_available"), has_api_key=status.get("has_api_key"), key_source=status.get("key_source"), model=status.get("model"))
 		if not status.get("library_available") or not status.get("has_api_key"):
 			reason = "library_missing" if not status.get("library_available") else "missing_api_key"
 			log_event("llm_skipped", event_id=event.event_id, reason=reason, model=status.get("model"))
@@ -104,10 +95,7 @@ def _llm_and_forward(event: EventStored) -> None:
 			# This path covers cases like empty completion; provide a reason
 			log_event("llm_skipped", event_id=event.event_id, reason="empty_completion", model=status.get("model"))
 			return
-		log_event("llm_result", event_id=event.event_id, text=text)
-		# Persist response for future context
-		from app.storage import store as _store
-		_store.add_llm_response(text)
+		log_event("llm_result", event_id=event.event_id)
 	except Exception as exc:
 		# Log detailed error so operators can see quota/model/permission issues
 		log_event("llm_error", event_id=event.event_id, error=str(exc), model=llm_env_status().get("model"))
@@ -115,8 +103,8 @@ def _llm_and_forward(event: EventStored) -> None:
 	# Forward LLM result the same way we forward events
 	forward_url = _get_forward_url()
 	if forward_url:
-		# Send only the LLM response with event_id for traceability
-		payload = {"event_id": event.event_id, "response": text}
+		# Only send the reply text as requested by the integration contract
+		payload = {"reply": text}
 		_forward_to_zapier(forward_url, payload)
 	else:
 		log_event("forward_skipped", reason="no_forward_url_configured_llm", event_id=event.event_id)
@@ -150,16 +138,9 @@ def receive_event(event: EventIn, background_tasks: BackgroundTasks) -> EventAck
 	)
 
 	# Forward the event to Zapier webhook if configured
-	forward_url = _get_forward_url()
-	if forward_url and _should_forward_original_events():
-		log_event("forward_scheduled", event_id=resolved_id, kind="original_event")
-		forward_payload = {"event_id": resolved_id, "source": event.source, "payload": event.payload}
-		background_tasks.add_task(_forward_to_zapier, forward_url, forward_payload)
-	else:
-		if not forward_url:
-			log_event("forward_skipped", reason="no_forward_url_configured", event_id=resolved_id, kind="original_event")
-		else:
-			log_event("forward_skipped", reason="disabled_by_config", event_id=resolved_id, kind="original_event")
+	# Per requirements, do not forward raw events; only forward the LLM reply later
+	# Retain informative log that raw forward is intentionally skipped
+	log_event("forward_skipped", reason="raw_event_forward_disabled", event_id=resolved_id)
 
 	# Also invoke LLM and forward its single-sentence response
 	background_tasks.add_task(_llm_and_forward, stored)
