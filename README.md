@@ -1,38 +1,47 @@
-## Zapier Webhook Receiver (Linux)
+## Environment variables
 
-A minimal FastAPI service that:
-- Accepts `POST /events` with a payload.
-- Generates a one‑sentence reply using OpenAI.
-- Forwards only the reply to your Zapier webhook.
-- Exposes `GET /status` and `GET /events` for quick local inspection.
-
-### Run (Linux)
-Prereqs: Python 3.11+, pip, and (optionally) ngrok.
-
-1) Create and activate a virtual environment:
+1) Create an env file by copying the example:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+cp env.example .env
 ```
 
-2) Start the API (replace placeholders with your actual values):
+2) Edit `.env` and fill in your values (keep it private and out of git).
+
+## Run locally with uvicorn (auto-load .env)
 
 ```bash
-OPENAI_API_KEY="API_KEY" OPENAI_MODEL="API_MODEL" \
-uvicorn app.main:app --reload --host 0.0.0.0 --port "${PORT:-8000}"
+uvicorn app.main:app --env-file .env
 ```
 
-3) (Optional) Expose locally via ngrok for Zapier:
+## Docker
+
+Build the image:
 
 ```bash
-ngrok http 8000
+docker build -t zapier-webhook-receiver:latest .
 ```
 
-Endpoints:
-- `POST /events`
-- `GET /status`
-- `GET /events`
-*** End Patch
+Run the container:
+
+```bash
+docker run --rm -p 8000:8000 \
+  --env-file .env \
+  --name zapier-webhook \
+  zapier-webhook-receiver:latest
+```
+
+Alternatively, pass variables explicitly with multiple `-e` flags (not recommended).
+
+Key endpoints:
+- `POST /events` — receive events (accepts optional `session_id` or `X-Session-Id`)
+- `GET /status` — health and brief stats
+- `GET /events` — list stored events
+- `GET/POST/DELETE /context` — manage ephemeral context
+- `GET/DELETE /sessions/{session_id}` — inspect/clear conversation history
+
+Note:
+- The app listens on `$PORT` (default 8000) and binds to `0.0.0.0` inside the container.
+- Context and session history are in-memory and reset on container restart.
+
 

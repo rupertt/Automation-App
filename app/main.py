@@ -8,7 +8,7 @@ import os
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, APIRouter, Query, BackgroundTasks
+from fastapi import FastAPI, APIRouter, Query, BackgroundTasks, Header
 import httpx
 
 from app.config import get_settings
@@ -18,8 +18,12 @@ from app.models import (
 	EventAck,
 	StatusResponse,
 	EventsListResponse,
+	ContextSetRequest,
+	ContextResponse,
+	SessionHistoryResponse,
+	ConversationMessage,
 )
-from app.storage import store
+from app.storage import store, context_store, conversation_store
 from app.llm import generate_one_sentence_response, llm_env_status
 
 
@@ -110,16 +114,74 @@ def _llm_and_forward(event: EventStored) -> None:
 		log_event("forward_skipped", reason="no_forward_url_configured_llm", event_id=event.event_id)
 
 
+def _derive_session_id(event: EventIn, x_session_id: str | None) -> str | None:
+	# Precedence: explicit in body > header > Slack/thread heuristics > common keys > fallback
+	if event.session_id:
+		return event.session_id
+	if x_session_id:
+		return x_session_id
+	payload = event.payload
+	if isinstance(payload, dict):
+		# Helper to fetch first non-empty string from candidate keys
+		def pick(d: dict[str, Any], keys: list[str]) -> str | None:
+			for k in keys:
+				val = d.get(k)
+				if isinstance(val, str) and val.strip():
+					return val.strip()
+				# Slack timestamps may be numeric; accept non-str
+				if not isinstance(val, str) and val is not None:
+					try:
+						s = str(val).strip()
+						if s:
+							return s
+					except Exception:
+						continue
+			return None
+
+		# Slack Events API style: payload.event.{channel,thread_ts,ts,user}
+		ev = payload.get("event")
+		if isinstance(ev, dict):
+			channel = pick(ev, ["channel", "channel_id"])
+			thread_ts = pick(ev, ["thread_ts", "ts"])
+			user = pick(ev, ["user", "user_id"])
+			if channel and thread_ts:
+				return f"slack:{channel}:{thread_ts}"
+			if channel and user:
+				return f"slack:{channel}:{user}"
+		# Slack slash/interactive style: flat keys
+		channel = pick(payload, ["channel", "channel_id"])
+		thread_ts = pick(payload, ["thread_ts", "ts"])
+		user = pick(payload, ["user", "user_id"])
+		if channel and thread_ts:
+			return f"slack:{channel}:{thread_ts}"
+		if channel and user:
+			return f"slack:{channel}:{user}"
+		# Common generic keys
+		for key in ["session_id", "session", "conversation_id", "thread_id", "chat_id", "user_id", "user"]:
+			val = payload.get(key)
+			if isinstance(val, str) and val.strip():
+				return val.strip()
+	# As last resort, group by source to always include some history bucket
+	source = (event.source or "default").lower()
+	return f"{source}:global"
+
+
 @router.post("/events", response_model=EventAck)
-def receive_event(event: EventIn, background_tasks: BackgroundTasks) -> EventAck:
+def receive_event(
+	event: EventIn,
+	background_tasks: BackgroundTasks,
+	x_session_id: str | None = Header(default=None, convert_underscores=False, alias="X-Session-Id"),
+) -> EventAck:
 	resolved_id = event.event_id or str(uuid4())
 	received_at = _now_utc()
+	resolved_session = _derive_session_id(event, x_session_id)
 
 	stored = EventStored(
 		event_id=resolved_id,
 		source=event.source,
 		payload=event.payload,
 		received_at=received_at,
+		session_id=resolved_session,
 	)
 	store.add_event(stored)
 
@@ -128,6 +190,7 @@ def receive_event(event: EventIn, background_tasks: BackgroundTasks) -> EventAck
 		event_id=resolved_id,
 		source=event.source,
 		payload_size=_payload_size(event.payload),
+		session_id=resolved_session,
 	)
 	# Log full received payload into output.log as JSON line
 	log_event(
@@ -135,6 +198,7 @@ def receive_event(event: EventIn, background_tasks: BackgroundTasks) -> EventAck
 		event_id=resolved_id,
 		source=event.source,
 		payload=event.payload,
+		session_id=resolved_session,
 	)
 
 	# Forward the event to Zapier webhook if configured
@@ -164,5 +228,43 @@ def list_events(offset: int = Query(default=0, ge=0), limit: int = Query(default
 
 app = FastAPI(title="Zapier Webhook Receiver", version="1.0.0")
 app.include_router(router)
+
+# --- Context management endpoints (ephemeral; reset on restart) ---
+
+@router.get("/context", response_model=ContextResponse)
+def get_context() -> ContextResponse:
+	current = context_store.get()
+	return ContextResponse(context=current)
+
+
+@router.post("/context", response_model=ContextResponse)
+def set_context(body: ContextSetRequest) -> ContextResponse:
+	context_store.set(body.context)
+	log_event("context_set")
+	return ContextResponse(context=body.context)
+
+
+@router.delete("/context", response_model=ContextResponse)
+def clear_context() -> ContextResponse:
+	context_store.clear()
+	log_event("context_cleared")
+	return ContextResponse(context=None)
+
+# --- Session history endpoints (ephemeral; reset on restart) ---
+
+@router.get("/sessions/{session_id}", response_model=SessionHistoryResponse)
+def get_session_history(session_id: str) -> SessionHistoryResponse:
+	raw = conversation_store.get(session_id)
+	return SessionHistoryResponse(
+		session_id=session_id,
+		messages=[ConversationMessage(role=m.role, content=m.content) for m in raw],
+	)
+
+
+@router.delete("/sessions/{session_id}", response_model=SessionHistoryResponse)
+def clear_session_history(session_id: str) -> SessionHistoryResponse:
+	conversation_store.clear(session_id)
+	log_event("session_cleared", session_id=session_id)
+	return SessionHistoryResponse(session_id=session_id, messages=[])
 
 

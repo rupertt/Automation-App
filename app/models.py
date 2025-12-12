@@ -12,6 +12,7 @@ class EventIn(BaseModel):
 	event_id: Optional[str] = Field(default=None, description="Client-provided ID; generated if absent")
 	source: str = Field(..., description="Source name of the event")
 	payload: Any = Field(..., description="Arbitrary JSON payload")
+	session_id: Optional[str] = Field(default=None, description="Logical session id for conversation memory")
 
 
 class EventStored(BaseModel):
@@ -21,6 +22,7 @@ class EventStored(BaseModel):
 	source: str
 	payload: Any
 	received_at: datetime
+	session_id: Optional[str] = None
 
 
 class EventAck(BaseModel):
@@ -56,5 +58,31 @@ class EventsListResponse(BaseModel):
 	offset: int
 	limit: int
 	items: list[EventStored]
+
+
+class ContextSetRequest(BaseModel):
+	"""Request body to set/replace the in-memory context."""
+
+	context: str = Field(..., description="Context text to include with LLM requests")
+
+
+class ContextResponse(BaseModel):
+	"""Response model for context endpoints."""
+
+	context: Optional[str] = Field(default=None, description="Current in-memory context, if any")
+
+
+class ConversationMessage(BaseModel):
+	"""A single conversation message stored for a session."""
+
+	role: Literal["user", "assistant"]
+	content: str
+
+
+class SessionHistoryResponse(BaseModel):
+	"""Response model for session history endpoints."""
+
+	session_id: str
+	messages: list[ConversationMessage]
 
 
