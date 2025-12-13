@@ -1,0 +1,141 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zapier-webhook-config
+data:
+  ENV: "prod"
+  PORT: "8000"
+  OPENAI_MODEL: "gpt-4.1-nano"
+  # Optional: where to forward LLM replies (Zapier webhook)
+  FORWARD_URL: "https://hooks.zapier.com/hooks/catch/your-id/your-token"
+  # Disable in-app ngrok; we run ngrok as a sidecar container in Kubernetes
+  NGROK_DISABLE: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zapier-webhook
+  labels:
+    app: zapier-webhook
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: zapier-webhook
+  template:
+    metadata:
+      labels:
+        app: zapier-webhook
+    spec:
+      containers:
+        - name: app
+          # Change this to your registry image, e.g. ghcr.io/<user>/zapier-webhook-receiver:latest
+          image: zapier-webhook-receiver:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: zapier-webhook-config
+            - secretRef:
+                name: zapier-webhook-secrets
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+        - name: ngrok
+          image: ngrok/ngrok:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NGROK_AUTHTOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: zapier-webhook-secrets
+                  key: NGROK_AUTHTOKEN
+            - name: NGROK_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: zapier-webhook-config
+                  key: NGROK_REGION
+                  optional: true
+            - name: NGROK_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: zapier-webhook-config
+                  key: NGROK_DOMAIN
+                  optional: true
+          args:
+            # Use reserved domain if provided; otherwise plain http tunnel to localhost:8000
+            # Note: the official image entrypoint is 'ngrok'
+            - "http"
+            - "--log=stdout"
+            - "127.0.0.1:8000"
+          resources:
+            requests:
+              cpu: "20m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zapier-webhook
+  labels:
+    app: zapier-webhook
+spec:
+  selector:
+    app: zapier-webhook
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: zapier-webhook
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+spec:
+  rules:
+    - host: your-domain.example
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: zapier-webhook
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - your-domain.example
+      secretName: your-tls-secret
+
+

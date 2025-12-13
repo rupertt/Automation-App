@@ -86,3 +86,11 @@ class SessionHistoryResponse(BaseModel):
 	messages: list[ConversationMessage]
 
 
+class LLMDiagnostics(BaseModel):
+	"""LLM readiness snapshot without leaking secrets."""
+
+	library_available: bool
+	has_api_key: bool
+	model: str
+
+

@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zapier-webhook
+  labels:
+    app: zapier-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zapier-webhook
+  template:
+    metadata:
+      labels:
+        app: zapier-webhook
+    spec:
+      containers:
+        - name: app
+          image: zapier-webhook-receiver:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: ngrok-ui
+              containerPort: 4040
+          envFrom:
+            - configMapRef:
+                name: zapier-webhook-config
+            - secretRef:
+                name: zapier-webhook-secrets
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+
