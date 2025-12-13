@@ -33,7 +33,7 @@ spec:
       containers:
         - name: app
           # Change this to your registry image, e.g. ghcr.io/<user>/zapier-webhook-receiver:latest
-          # image: rupertjturnbull/custom-images:<+artifact.tag>
+          image: rupertjturnbull/custom-images:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
